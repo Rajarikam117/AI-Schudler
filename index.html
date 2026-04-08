@@ -1106,28 +1106,41 @@ async function generate() {
   const ctx = `Work: ${mins2t(S.times.start)}–${mins2t(S.times.end)}, Peak: ${mins2t(S.times.pstart)}–${mins2t(S.times.pend)}, Focus: ${S.times.focus}min, Break: ${S.times.break}min`;
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:1200,
-        system:`You are an expert productivity coach. Output ONLY valid JSON, no markdown, no preamble.
+   const res = await fetch('/api/generate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    messages: [
+      {
+        role: "system",
+        content: `You are an expert productivity coach. Output ONLY valid JSON.
 
 Return:
 {
   "schedule": [{"time":"09:00","title":"...","type":"deep|break|admin|meeting","duration":60,"note":"short tip"}],
   "tasks": [{"name":"...","priority":"high|medium|low","category":"Work|Health|Personal|Learning","duration":60}],
   "insight": "2 sentence productivity insight."
+}`
+      },
+      {
+        role: "user",
+        content: `Tasks: ${input}\nConstraints: ${ctx}`
+      }
+    ]
+  })
+});
+    const text = await res.text();
+console.log("BACKEND RESPONSE:", text);
+
+let data;
+try {
+  data = JSON.parse(text);
+} catch {
+  throw new Error("Backend returned invalid JSON:\n" + text);
 }
 
-Rules: place high-priority tasks at peak energy, add 10-15min breaks every 90min, include lunch ~12:30, infer categories from context.`,
-        messages:[{role:'user',content:`Tasks: ${input}\nConstraints: ${ctx}`}]
-      })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    const raw = data.content.map(b=>b.text||'').join('');
+if (data.error) throw new Error(data.error);
+    const raw = data.choices[0].message.content;
     const result = JSON.parse(raw.replace(/```json|```/g,'').trim());
 
     if (result.tasks?.length) {
