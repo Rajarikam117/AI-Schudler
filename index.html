@@ -1089,31 +1089,31 @@ function fillEx(el) {
 
 async function generate() {
   const input = document.getElementById('nl-ta').value.trim();
-  if (!input) { document.getElementById('nl-ta').focus(); return; }
+  if (!input) {
+    document.getElementById('nl-ta').focus();
+    return;
+  }
 
   const btn = document.getElementById('nl-btn');
   btn.classList.add('loading');
-  btn.innerHTML = `<svg style="animation:spin 0.7s linear infinite;width:16px;height:16px;fill:currentColor" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg> Generating…`;
+  btn.innerHTML = "Generating...";
 
   document.getElementById('ex-wrap').style.display = 'none';
 
   const out = document.getElementById('tl-output');
-  out.innerHTML = `<div class="shimmer-group" style="margin-top:20px">
-    <div class="shim h56" style="margin-bottom:10px"></div>
-    ${['80','60','70','50','75','55'].map(w=>`<div class="shim" style="width:${w}%"></div>`).join('')}
-  </div>`;
+  out.innerHTML = "Loading...";
 
   const ctx = `Work: ${mins2t(S.times.start)}–${mins2t(S.times.end)}, Peak: ${mins2t(S.times.pstart)}–${mins2t(S.times.pend)}, Focus: ${S.times.focus}min, Break: ${S.times.break}min`;
 
   try {
-   const res = await fetch('/api/generate', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    messages: [
-      {
-        role: "system",
-        content: `You are an expert productivity coach. Output ONLY valid JSON.
+    const res = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert productivity coach. Output ONLY valid JSON.
 
 Return:
 {
@@ -1121,40 +1121,73 @@ Return:
   "tasks": [{"name":"...","priority":"high|medium|low","category":"Work|Health|Personal|Learning","duration":60}],
   "insight": "2 sentence productivity insight."
 }`
-      },
-      {
-        role: "user",
-        content: `Tasks: ${input}\nConstraints: ${ctx}`
-      }
-    ]
-  })
-});
+          },
+          {
+            role: "user",
+            content: `Tasks: ${input}\nConstraints: ${ctx}`
+          }
+        ]
+      })
+    });
+
+    // 🔥 SAFE RESPONSE HANDLING
     const text = await res.text();
-console.log("BACKEND RESPONSE:", text);
+    console.log("BACKEND RESPONSE:", text);
 
-let data;
-try {
-  data = JSON.parse(text);
-} catch {
-  throw new Error("Backend returned invalid JSON:\n" + text);
-}
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error("Invalid JSON from backend:\n" + text);
+    }
 
-if (data.error) throw new Error(data.error);
-    const raw = data.choices[0].message.content;
-    const result = JSON.parse(raw.replace(/```json|```/g,'').trim());
+    if (!res.ok) {
+      throw new Error(data.error || "Server error");
+    }
+
+    if (data.error) {
+      throw new Error(
+        typeof data.error === "string"
+          ? data.error
+          : data.error.message || JSON.stringify(data.error)
+      );
+    }
+
+    // ✅ GROQ FORMAT
+    const raw = data.choices?.[0]?.message?.content;
+    if (!raw) throw new Error("Invalid AI response");
+
+    let result;
+    try {
+      result = JSON.parse(raw.replace(/```json|```/g, '').trim());
+    } catch {
+      throw new Error("AI returned invalid JSON");
+    }
 
     if (result.tasks?.length) {
-      result.tasks.forEach(t => S.tasks.push({id:Date.now()+Math.random(),...t,done:false}));
+      result.tasks.forEach(t =>
+        S.tasks.push({
+          id: Date.now() + Math.random(),
+          ...t,
+          done: false
+        })
+      );
       syncStats();
     }
+
     drawTimeline(result, out);
 
-  } catch(e) {
-    out.innerHTML = `<div style="margin:16px 20px;padding:16px;background:var(--surface);border:1px solid var(--pink-dim);border-radius:14px;color:var(--pink);font-size:14px;text-align:center">⚠ ${esc(e.message||'Error. Please try again.')}</div>`;
+  } catch (e) {
+    console.error(e);
+
+    out.innerHTML = `
+      <div style="margin:16px;padding:16px;background:#111;border:1px solid red;border-radius:10px;color:red">
+        ⚠ ${typeof e.message === "string" ? e.message : JSON.stringify(e)}
+      </div>
+    `;
   } finally {
     btn.classList.remove('loading');
-    btn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg> Regenerate`;
-    btn.style.background = 'var(--teal)'; btn.style.color = '#000';
+    btn.innerHTML = "Generate";
   }
 }
 
