@@ -1,0 +1,5 @@
+import{Router}from'express';import{chatWithGemini,geminiStatus}from'../services/gemini.js';import{readDb}from'../storage/database.js';import{httpError}from'../middleware/errorHandler.js';
+const router=Router();
+router.get('/status',(req,res)=>res.json(geminiStatus()));
+router.post('/chat',async(req,res)=>{const messages=req.body?.messages;if(!Array.isArray(messages)||messages.length<1||messages.length>20)throw httpError(400,'messages must be an array containing 1–20 messages.');const safe=messages.map(m=>{if(!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'||!m.content.trim()||m.content.length>2000)throw httpError(400,'Each message requires a valid user/assistant role and 1–2000 characters.');return {role:m.role,content:m.content.trim()};});if(safe.at(-1).role!=='user')throw httpError(400,'The final chat message must be from the user.');const db=await readDb();const reply=await chatWithGemini(safe,db.tasks.map(({id,title,status,priority,deadline,estimatedDuration})=>({id,title,status,priority,deadline,estimatedDuration})));res.json({reply});});
+export default router;

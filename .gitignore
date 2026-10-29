@@ -1,4 +1,11 @@
-node_modules
+node_modules/
+.env
 .env.local
-.vercel
-.env*.local
+.env.*.local
+.DS_Store
+npm-debug.log*
+*.log
+coverage/
+data/*.json
+data/*.bak
+!data/.gitkeep
