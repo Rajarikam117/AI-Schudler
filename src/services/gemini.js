@@ -1,14 +1,15 @@
 import { httpError } from '../middleware/errorHandler.js';
 const timeoutMs=25000;
+const defaultModel='gemini-3.8-flash';
 function apiKey(){return process.env.GOOGLE_API_KEY||process.env.GEMINI_API_KEY||'';}
-export function geminiStatus(){return {configured:Boolean(apiKey()),model:process.env.GEMINI_MODEL||'gemini-2.5-flash'};}
+export function geminiStatus(){return {configured:Boolean(apiKey()),model:process.env.GEMINI_MODEL||defaultModel};}
 async function generate(prompt, { json=false }={}) {
   const key=apiKey(); if(!key) throw httpError(503,'Gemini API key is not configured.','AI is not configured yet. Add GOOGLE_API_KEY to .env.local, then restart the app. Task management works without it.');
-  const model=(process.env.GEMINI_MODEL||'gemini-2.5-flash').trim();
+  const model=(process.env.GEMINI_MODEL||defaultModel).trim();
   const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),timeoutMs);
   try {
     const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{temperature:0.3,...(json?{responseMimeType:'application/json'}:{})}})});
-    if(!response.ok){const code=response.status; let message='Gemini request failed.'; if(code===400)message='Gemini rejected the request. Check model and request format.';else if(code===401||code===403)message='Gemini API key is invalid or lacks permission.';else if(code===429)message='Gemini quota or rate limit exceeded. Try again later.'; throw httpError(code===429?429:code===400?400:502,message,message);}
+    if(!response.ok){const code=response.status;let detail='';try{detail=(await response.json())?.error?.message||'';}catch{}let message=detail||'Gemini request failed.';if(code===400)message=detail||'Gemini rejected the request. Check model and request format.';else if(code===401||code===403)message=detail||'Gemini API key is invalid or lacks permission.';else if(code===404)message=detail||`Gemini model "${model}" was not found or is unavailable to this API key. Update GEMINI_MODEL in .env.local.`;else if(code===429)message=detail||'Gemini quota or rate limit exceeded. Try again later.';throw httpError(code===429?429:code===400?400:code===404?502:code===401||code===403?502:502,'Gemini API returned HTTP '+code+'.',message);}
     const body=await response.json(); const text=body?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('').trim();
     if(!text) throw httpError(502,'Gemini returned an empty response.','Gemini returned an empty response. Please try again.');
     return text;
