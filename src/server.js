@@ -1,24 +1,14 @@
-'use strict';
-const path = require('node:path');
-const fs = require('node:fs');
-const http = require('node:http');
-const { URL } = require('node:url');
-const db = require('./storage/database');
-const taskRoutes = require('./routes/tasks');
-const scheduleRoutes = require('./routes/schedules');
-const aiRoutes = require('./routes/ai');
-const settingsRoutes = require('./routes/settings');
-function loadEnv(){try{const content=fs.readFileSync(path.join(__dirname,'..','.env.local'),'utf8');for(const line of content.split(/\r?\n/)){const m=line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2].replace(/^(['"])(.*)\1$/,'$2');}}catch(e){if(e.code!=='ENOENT')console.error('Could not read .env.local:',e.message);}}
-loadEnv();
-const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon'};
-const aiWindows=new Map();
-function json(res,status,value){if(res.writableEnded)return;const b=Buffer.from(JSON.stringify(value));res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Content-Length':b.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(b);}
-function headers(res){res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");}
-async function body(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>102400)throw Object.assign(new Error('Request body must be 100 KB or smaller.'),{status:413,code:'PAYLOAD_TOO_LARGE'});chunks.push(chunk);}if(!chunks.length)return {};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw Object.assign(new Error('Request body must be valid JSON.'),{status:400,code:'INVALID_JSON'});}}
-const app={async handle(req,res){headers(res);let url;try{url=new URL(req.url,'http://localhost');}catch{return json(res,400,{error:{code:'BAD_URL',message:'Invalid URL.'}});}let pathname;try{pathname=decodeURIComponent(url.pathname);}catch{return json(res,400,{error:{code:'INVALID_PATH',message:'Malformed path.'}});}if(req.method==='OPTIONS'){res.writeHead(204);return res.end();}if(pathname==='/api/health'&&req.method==='GET')return json(res,200,{status:'ok',app:'AI Scheduler',time:new Date().toISOString()});if(pathname.startsWith('/api/')){let input={};if(!['GET','HEAD'].includes(req.method)){const length=Number(req.headers['content-length']||0);if(length>102400)return json(res,413,{error:{code:'PAYLOAD_TOO_LARGE',message:'Request body must be 100 KB or smaller.'}});try{input=await body(req);}catch(e){if(!res.destroyed)return json(res,e.status||400,{error:{code:e.code||'INVALID_JSON',message:e.message}});return;}}if(pathname.startsWith('/api/ai/')){const key=req.socket.remoteAddress||'local',now=Date.now(),recent=(aiWindows.get(key)||[]).filter(t=>now-t<60000);if(recent.length>=12)return json(res,429,{error:{code:'RATE_LIMITED',message:'Too many AI requests. Wait a minute and retry.'}});recent.push(now);aiWindows.set(key,recent);}const routers=[['/api/tasks',taskRoutes],['/api/schedules',scheduleRoutes],['/api/ai',aiRoutes],['/api/settings',settingsRoutes]],found=routers.find(([p])=>pathname===p||pathname.startsWith(p+'/'));if(!found)return json(res,404,{error:{code:'NOT_FOUND',message:'API endpoint not found.'}});return found[1].handle({method:req.method,path:pathname.slice(found[0].length)||'/',query:Object.fromEntries(url.searchParams.entries()),body:input,headers:req.headers,socket:req.socket},res,pathname.slice(found[0].length)||'/',Object.fromEntries(url.searchParams.entries()),input);}if(!['GET','HEAD'].includes(req.method)){res.writeHead(405,{'Allow':'GET, HEAD'});return res.end('Method not allowed');}const root=path.resolve(__dirname,'..','public'),file=path.resolve(root,pathname==='/'?'index.html':pathname.replace(/^\/+/,''));if(file!==path.join(root,'index.html')&&!file.startsWith(root+path.sep)){res.writeHead(403);return res.end('Forbidden');}try{const data=await fs.promises.readFile(file);res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache'});res.end(req.method==='HEAD'?undefined:data);}catch{try{const data=await fs.promises.readFile(path.join(root,'index.html'));res.writeHead(404,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'});res.end(req.method==='HEAD'?undefined:data);}catch{res.writeHead(500);res.end('Application files are missing.');}}}};
-let serverInstance;
-async function start(){await db.ensure();const port=process.env.NODE_ENV==='test'?0:Number(process.env.PORT||3000);serverInstance=http.createServer((req,res)=>app.handle(req,res));await new Promise((resolve,reject)=>{serverInstance.once('error',reject);serverInstance.listen(port,resolve);});console.log(`AI Scheduler running at http://localhost:${serverInstance.address().port}`);return serverInstance;}
-function shutdown(){if(serverInstance)serverInstance.close(()=>process.exit(0));}
-process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
-if(require.main===module)start().catch(e=>{console.error('Failed to start server:',e.message);process.exitCode=1;});
-module.exports={app,start};
+import 'dotenv/config';
+import fs from 'node:fs'; import dotenv from 'dotenv';
+if(fs.existsSync('.env.local'))dotenv.config({path:'.env.local',override:false});
+import express from 'express';import path from 'node:path';import{fileURLToPath}from'node:url';import rateLimit from'express-rate-limit';
+import tasksRouter from './routes/tasks.js';import schedulesRouter from './routes/schedules.js';import aiRouter from './routes/ai.js';import preferencesRouter from './routes/preferences.js';import{notFound,errorHandler}from'./middleware/errorHandler.js';import{readDb}from'./storage/database.js';
+const __dirname=path.dirname(fileURLToPath(import.meta.url));const app=express();const port=Number(process.env.PORT)||3000;
+app.disable('x-powered-by');app.use(express.json({limit:'64kb'}));
+const aiLimiter=rateLimit({windowMs:60_000,limit:10,standardHeaders:true,legacyHeaders:false,message:{error:'Rate limit exceeded',message:'Please wait a minute before making more AI requests.'}});
+app.get('/api/health',async(req,res)=>{const db=await readDb();res.json({status:'ok',app:'AI Scheduler',time:new Date().toISOString(),taskCount:db.tasks.length});});
+app.use('/api/tasks',tasksRouter);app.use('/api/schedules',schedulesRouter);app.use('/api/ai',aiLimiter,aiRouter);app.use('/api/preferences',preferencesRouter);
+app.use(express.static(path.resolve(__dirname,'../public'),{extensions:['html']}));app.use('/api',notFound);app.use((req,res)=>res.sendFile(path.resolve(__dirname,'../public/index.html')));app.use(errorHandler);
+const server=app.listen(port,()=>console.log(`AI Scheduler running at http://localhost:${port}`));
+function shutdown(){server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),5000).unref();}process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
+export {app,server};

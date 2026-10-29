@@ -1,0 +1,8 @@
+import test from 'node:test';import assert from 'node:assert/strict';import{validateSchedule,simpleSchedule}from'../src/services/scheduler.js';
+const tasks=[{id:'t1',title:'Study',priority:'High',estimatedDuration:60,status:'pending'}];
+test('valid schedule is normalized',()=>{const s=validateSchedule({items:[{title:'Study',taskId:'t1',startTime:'09:00',endTime:'10:00',durationMinutes:60}],unscheduled:[]},{tasks,date:'2026-10-29',startTime:'09:00',endTime:'17:00'});assert.equal(s.items[0].durationMinutes,60);});
+test('rejects overlapping items',()=>{assert.throws(()=>validateSchedule({items:[{title:'A',startTime:'09:00',endTime:'10:00'},{title:'B',startTime:'09:30',endTime:'10:30'}],unscheduled:[]},{startTime:'09:00',endTime:'17:00'}),/overlaps/);});
+test('rejects item outside availability',()=>{assert.throws(()=>validateSchedule({items:[{title:'A',startTime:'08:00',endTime:'09:00'}],unscheduled:[]},{startTime:'09:00',endTime:'17:00'}),/outside/);});
+test('rejects unknown task IDs',()=>{assert.throws(()=>validateSchedule({items:[{title:'A',taskId:'missing',startTime:'09:00',endTime:'10:00'}],unscheduled:[]},{tasks,startTime:'09:00',endTime:'17:00'}),/Unknown task/);});
+test('rejects mismatched durations',()=>{assert.throws(()=>validateSchedule({items:[{title:'A',startTime:'09:00',endTime:'10:00',durationMinutes:30}],unscheduled:[]},{startTime:'09:00',endTime:'17:00'}),/Duration mismatch/);});
+test('local planner fits tasks inside time window',()=>{const s=simpleSchedule(tasks,{startTime:'09:00',endTime:'11:00',breakMinutes:0,date:'2026-10-29'});assert.equal(s.items.length,1);assert.equal(s.items[0].startTime,'09:00');});
