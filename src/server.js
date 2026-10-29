@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import fs from 'node:fs'; import dotenv from 'dotenv';
 if(fs.existsSync('.env.local'))dotenv.config({path:'.env.local',override:false});
+// Express 4 does not forward rejected async route handlers to error middleware by itself.
+import 'express-async-errors';
 import express from 'express';import path from 'node:path';import{fileURLToPath}from'node:url';import rateLimit from'express-rate-limit';
 import tasksRouter from './routes/tasks.js';import schedulesRouter from './routes/schedules.js';import aiRouter from './routes/ai.js';import preferencesRouter from './routes/preferences.js';import{notFound,errorHandler}from'./middleware/errorHandler.js';import{readDb}from'./storage/database.js';
 const __dirname=path.dirname(fileURLToPath(import.meta.url));const app=express();const port=Number(process.env.PORT)||3000;
